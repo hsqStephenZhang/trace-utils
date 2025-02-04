@@ -1,0 +1,27 @@
+#!/usr/bin/env bpftrace
+
+#include <linux/skbuff.h>
+#include <linux/ip.h>
+#include <linux/tcp.h>
+
+kretprobe:tcp_gro_receive {
+    $skb = (struct sk_buff *)retval;
+
+    if ($skb) { // If return value is non-null, merging was successful
+        $cb = (struct napi_gro_cb *)($skb->cb);
+
+        if ($cb->count > 1) { // Only check data if packets were merged
+            $ip = (struct iphdr *)($skb->head + $skb->network_header);
+            $tcp = (struct tcphdr *)($skb->head + $skb->transport_header);
+
+            printf("GRO_MERGED: %u.%u.%u.%u:%d => %u.%u.%u.%u:%d, count=%d, data_len=%d, total_len=%d\n",
+                   (($ip->saddr >> 0) & 0xFF), (($ip->saddr >> 8) & 0xFF),
+                   (($ip->saddr >> 16) & 0xFF), (($ip->saddr >> 24) & 0xFF),
+                   $tcp->source,
+                   (($ip->daddr >> 0) & 0xFF), (($ip->daddr >> 8) & 0xFF),
+                   (($ip->daddr >> 16) & 0xFF), (($ip->daddr >> 24) & 0xFF),
+                   $tcp->dest,
+                   $cb->count, $skb->data_len, $skb->len);
+        }
+    }
+}
